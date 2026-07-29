@@ -29,6 +29,7 @@ internal sealed class MainForm : Form
         Shown += InitializeWebViewAsync;
         KeyPreview = true;
         KeyDown += HandleFormKeyDown;
+        webView.KeyDown += HandleFormKeyDown;
     }
 
     private async void InitializeWebViewAsync(object? sender, EventArgs e)
@@ -43,34 +44,6 @@ internal sealed class MainForm : Form
             settings.AreBrowserAcceleratorKeysEnabled = false;
             settings.IsStatusBarEnabled = false;
             settings.IsZoomControlEnabled = false;
-
-            webView.CoreWebView2Controller.AcceleratorKeyPressed += (_, args) =>
-            {
-                bool keyDown =
-                    args.KeyEventKind == CoreWebView2KeyEventKind.KeyDown ||
-                    args.KeyEventKind == CoreWebView2KeyEventKind.SystemKeyDown;
-                if (!keyDown)
-                    return;
-
-                Keys key = (Keys)args.VirtualKey;
-                bool control = (Control.ModifierKeys & Keys.Control) != 0;
-                bool shift = (Control.ModifierKeys & Keys.Shift) != 0;
-                bool refresh = key == Keys.F5 || (control && key == Keys.R);
-                bool devTools =
-                    key == Keys.F12 ||
-                    (control && shift &&
-                     (key == Keys.I || key == Keys.J || key == Keys.C));
-
-                if (refresh)
-                {
-                    BeginInvoke((Action)(() => webView.CoreWebView2.Reload()));
-                    args.Handled = true;
-                }
-                else if (devTools)
-                {
-                    args.Handled = true;
-                }
-            };
 
             webView.CoreWebView2.NewWindowRequested += (_, args) =>
             {
