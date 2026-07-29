@@ -247,6 +247,35 @@ const BROWSER_GUARDS: &str = r#"
     if (url) window.location.assign(url);
     return window;
   };
+
+  if (location.hostname === 'face-reg-cyan.vercel.app') {
+    const showRuntimeError = (value) => {
+      const message = value?.stack || value?.message || String(value);
+      let panel = document.getElementById('__face_reg_runtime_error__');
+      if (!panel) {
+        panel = document.createElement('pre');
+        panel.id = '__face_reg_runtime_error__';
+        Object.assign(panel.style, {
+          position: 'fixed',
+          inset: '16px',
+          zIndex: '2147483647',
+          margin: '0',
+          padding: '20px',
+          overflow: 'auto',
+          border: '2px solid #dc3545',
+          borderRadius: '12px',
+          background: '#fff',
+          color: '#991b1b',
+          font: '13px/1.5 monospace',
+          whiteSpace: 'pre-wrap'
+        });
+        document.documentElement.appendChild(panel);
+      }
+      panel.textContent = `FaceReg runtime xatosi:\n\n${message}`;
+    };
+    window.addEventListener('error', (event) => showRuntimeError(event.error || event.message));
+    window.addEventListener('unhandledrejection', (event) => showRuntimeError(event.reason));
+  }
 })();
 "#;
 
@@ -264,7 +293,7 @@ pub fn run() {
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(800.0, 600.0)
                 .maximized(true)
-                .devtools(false)
+                .devtools(cfg!(debug_assertions))
                 .initialization_script(BROWSER_GUARDS)
                 .on_page_load(move |webview, payload| {
                     if payload.event() != PageLoadEvent::Finished
