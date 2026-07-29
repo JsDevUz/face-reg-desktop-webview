@@ -37,27 +37,6 @@ fn employee_data(payload: &Value) -> Option<&Value> {
     payload.get("data").filter(|value| value.is_object())
 }
 
-fn has_terminal_permission(employee: &Value) -> bool {
-    if employee
-        .get("type")
-        .or_else(|| employee.get("role_type"))
-        .and_then(Value::as_str)
-        == Some("SUPERADMIN")
-    {
-        return true;
-    }
-
-    employee
-        .get("role_actions")
-        .or_else(|| employee.get("permissions"))
-        .and_then(Value::as_array)
-        .is_some_and(|actions| {
-            actions.iter().any(|action| {
-                action.get("route").and_then(Value::as_str) == Some("check-terminal-id")
-            })
-        })
-}
-
 fn string_values(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
@@ -85,15 +64,6 @@ fn terminal_id(payload: &Value) -> Option<String> {
 }
 
 async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result<(), LoginError> {
-    if !has_terminal_permission(employee) {
-        return Ok(());
-    }
-
-    let is_superadmin = employee
-        .get("type")
-        .or_else(|| employee.get("role_type"))
-        .and_then(Value::as_str)
-        == Some("SUPERADMIN");
     let store = employee.get("store").filter(|value| value.is_object());
     let store_name = store
         .and_then(|store| store.get("name"))
@@ -105,6 +75,26 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
             .or_else(|| employee.get("terminal_ids")),
     );
 
+    if store.is_none() {
+        return Err(LoginError {
+            code: "storeNotAssigned",
+            message: "Xodimga dorixona biriktirilmagan. Kirish bloklandi.".to_owned(),
+            store_name,
+            terminal_id: None,
+            allowed_terminal_ids,
+        });
+    }
+
+    if allowed_terminal_ids.is_empty() {
+        return Err(LoginError {
+            code: "terminalNotAssigned",
+            message: "Dorixona uchun terminal ID belgilanmagan. Kirish bloklandi.".to_owned(),
+            store_name,
+            terminal_id: None,
+            allowed_terminal_ids,
+        });
+    }
+
     let status = client
         .post(EPOS_URL)
         .json(&json!({ "token": EPOS_TOKEN, "method": "checkStatus" }))
@@ -113,7 +103,7 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
 
     let status = match status {
         Ok(response) => response.json::<Value>().await.unwrap_or(Value::Null),
-        Err(_) if !is_superadmin => {
+        Err(_) => {
             return Err(LoginError {
                 code: "eposUnavailable",
                 message: "EPOS terminaliga ulanib bo‘lmadi. Kirish bloklandi.".to_owned(),
@@ -122,13 +112,16 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
                 allowed_terminal_ids,
             });
         }
-        Err(_) => return Ok(()),
     };
 
-    // Pharma guard EPOS xizmatining o‘zi error qaytarsa foydalanuvchini
-    // bloklamaydi; faqat lokal servisga umuman ulanib bo‘lmasa bloklaydi.
     if status.get("error").and_then(Value::as_bool) == Some(true) {
-        return Ok(());
+        return Err(LoginError {
+            code: "eposUnavailable",
+            message: "EPOS ishlamayapti yoki fleshka topilmadi. Kirish bloklandi.".to_owned(),
+            store_name,
+            terminal_id: None,
+            allowed_terminal_ids,
+        });
     }
 
     let terminal_response = client
@@ -139,7 +132,7 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
 
     let terminal_response = match terminal_response {
         Ok(response) => response.json::<Value>().await.unwrap_or(Value::Null),
-        Err(_) if !is_superadmin => {
+        Err(_) => {
             return Err(LoginError {
                 code: "eposUnavailable",
                 message: "EPOS terminaliga ulanib bo‘lmadi. Kirish bloklandi.".to_owned(),
@@ -148,12 +141,16 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
                 allowed_terminal_ids,
             });
         }
-        Err(_) => return Ok(()),
     };
 
-    // TerminalAccessGuard kabi terminal ID topilmasa kirishga ruxsat beradi.
     let Some(current_terminal_id) = terminal_id(&terminal_response) else {
-        return Ok(());
+        return Err(LoginError {
+            code: "terminalNotFound",
+            message: "EPOS’dan terminal ID olinmadi. Kirish bloklandi.".to_owned(),
+            store_name,
+            terminal_id: None,
+            allowed_terminal_ids,
+        });
     };
 
     if allowed_terminal_ids

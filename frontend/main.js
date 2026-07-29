@@ -167,7 +167,15 @@ form.addEventListener("submit", async (event) => {
     if (!token) throw new Error("Server token qaytarmadi");
     await invoke("validate_and_open", { token });
   } catch (error) {
-    if (error?.code === "terminalMismatch" || error?.code === "eposUnavailable") {
+    if (
+      [
+        "storeNotAssigned",
+        "terminalNotAssigned",
+        "eposUnavailable",
+        "terminalNotFound",
+        "terminalMismatch",
+      ].includes(error?.code)
+    ) {
       showBlocked(error);
     } else {
       showError(
