@@ -274,7 +274,10 @@ pub fn run() {
                         return;
                     }
 
-                    let token = page_auth.0.lock().ok().and_then(|guard| guard.clone());
+                    // Token faqat bir marta remote origin'ga uzatiladi. Web
+                    // restoreSession tokenni rad etsa uni qayta-qayta yozish
+                    // reload loop hosil qilmasligi kerak.
+                    let token = page_auth.0.lock().ok().and_then(|mut guard| guard.take());
                     let Some(token) = token else {
                         return;
                     };
