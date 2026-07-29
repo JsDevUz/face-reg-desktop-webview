@@ -1,0 +1,46 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Publish lightweight EXE
+        run: >
+          dotnet publish FaceRegDesktop.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained false
+          --output publish
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=None
+          -p:DebugSymbols=false
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FaceReg-Windows-x64
+          path: publish/
+          if-no-files-found: error
+          retention-days: 30
