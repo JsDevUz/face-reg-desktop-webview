@@ -5,8 +5,15 @@ use tauri::{webview::PageLoadEvent, WebviewUrl, WebviewWindow, WebviewWindowBuil
 
 const APP_URL: &str = "https://face-reg-cyan.vercel.app/";
 const API_URL: &str = "https://api.tayin.uz";
-const EPOS_URL: &str = "http://localhost:8347/uzpos";
 const EPOS_TOKEN: &str = "DXJFX32CN1296678504F2";
+
+fn epos_url() -> &'static str {
+    if API_URL == "https://api.tayin.uz" {
+        "https://api.tayin.uz/v1/helper/epos"
+    } else {
+        "http://localhost:8347/uzpos"
+    }
+}
 
 #[derive(Default)]
 struct PendingAuth(Mutex<Option<String>>);
@@ -39,10 +46,15 @@ fn epos_diagnostics(method: &str, response: Option<&Value>, error: Option<&str>)
     json!({
         "request": {
             "method": "POST",
-            "url": EPOS_URL,
+            "url": epos_url(),
             "headers": {
                 "Accept": "application/json",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json; charset=utf-8",
+                "Authorization": if API_URL == "https://api.tayin.uz" {
+                    "Bearer <login-token>"
+                } else {
+                    "<not-sent>"
+                }
             },
             "body": {
                 "token": EPOS_TOKEN,
@@ -84,7 +96,29 @@ fn terminal_id(payload: &Value) -> Option<String> {
         })
 }
 
-async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result<(), LoginError> {
+fn epos_request(
+    client: &reqwest::Client,
+    bearer_token: &str,
+    method: &str,
+) -> reqwest::RequestBuilder {
+    let request = client
+        .post(epos_url())
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json; charset=utf-8")
+        .json(&json!({ "token": EPOS_TOKEN, "method": method }));
+
+    if API_URL == "https://api.tayin.uz" {
+        request.bearer_auth(bearer_token)
+    } else {
+        request
+    }
+}
+
+async fn validate_terminal(
+    client: &reqwest::Client,
+    bearer_token: &str,
+    employee: &Value,
+) -> Result<(), LoginError> {
     let store = employee.get("store").filter(|value| value.is_object());
     let store_name = store
         .and_then(|store| store.get("name"))
@@ -118,9 +152,7 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
         });
     }
 
-    let status = client
-        .post(EPOS_URL)
-        .json(&json!({ "token": EPOS_TOKEN, "method": "checkStatus" }))
+    let status = epos_request(client, bearer_token, "checkStatus")
         .send()
         .await;
 
@@ -153,11 +185,7 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
         });
     }
 
-    let terminal_response = client
-        .post(EPOS_URL)
-        .json(&json!({ "token": EPOS_TOKEN, "method": "getStatus" }))
-        .send()
-        .await;
+    let terminal_response = epos_request(client, bearer_token, "getStatus").send().await;
 
     let terminal_response = match terminal_response {
         Ok(response) => response.json::<Value>().await.unwrap_or(Value::Null),
@@ -238,7 +266,7 @@ async fn validate_and_open(
     let employee = employee_data(&employee_payload)
         .ok_or_else(|| LoginError::simple("invalidResponse", "Xodim ma’lumoti topilmadi"))?;
 
-    validate_terminal(&client, employee).await?;
+    validate_terminal(&client, &token, employee).await?;
 
     *auth
         .0
