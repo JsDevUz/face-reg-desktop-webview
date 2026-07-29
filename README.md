@@ -9,6 +9,10 @@ yengil Windows desktop ilova.
 - web ilovadagi dizayn bilan bir xil native boshlang‘ich login;
 - Tauri login bearer tokenini WebView sessiyasiga avtomatik uzatadi;
 - muvaffaqiyatli kirilganda web login sahifasi qayta ko‘rsatilmaydi;
+- WebView ochilishidan oldin EPOS terminal ID dorixona terminal ID’lari bilan
+  native Rust qatlamida solishtiriladi;
+- terminal mos kelmasa yoki lokal EPOS servisiga ulanib bo‘lmasa web ochilmaydi
+  va native “Kirish bloklandi” oynasi ko‘rsatiladi;
 - sayt fayllari ilovaga ko‘chirilmaydi;
 - release build'da DevTools o‘chirilgan;
 - browser context menu va developer hotkeylar bloklangan;

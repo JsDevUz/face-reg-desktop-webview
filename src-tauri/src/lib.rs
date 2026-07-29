@@ -1,75 +1,218 @@
-use serde::Deserialize;
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use tauri::{webview::PageLoadEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const APP_URL: &str = "https://face-reg-cyan.vercel.app/";
-const API_URL: &str = "https://api.pharma-cosmos.uz:4443";
+const API_URL: &str = "https://api.tayin.uz";
+const EPOS_URL: &str = "http://localhost:8347/uzpos";
+const EPOS_TOKEN: &str = "DXJFX32CN1296678504F2";
 
 #[derive(Default)]
 struct PendingAuth(Mutex<Option<String>>);
 
-#[derive(Deserialize)]
-struct LoginInput {
-    phone: String,
-    password: String,
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginError {
+    code: &'static str,
+    message: String,
+    store_name: Option<String>,
+    terminal_id: Option<String>,
+    allowed_terminal_ids: Vec<String>,
 }
 
-fn find_token(value: &Value) -> Option<&str> {
-    let object = value.as_object()?;
-    ["access_token", "accessToken", "token"]
-        .iter()
-        .find_map(|key| object.get(*key).and_then(Value::as_str))
-        .or_else(|| object.get("data").and_then(find_token))
+impl LoginError {
+    fn simple(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            store_name: None,
+            terminal_id: None,
+            allowed_terminal_ids: Vec::new(),
+        }
+    }
 }
 
-fn api_error_message(value: &Value, status: reqwest::StatusCode) -> String {
-    value
-        .get("message")
+fn employee_data(payload: &Value) -> Option<&Value> {
+    payload.get("data").filter(|value| value.is_object())
+}
+
+fn has_terminal_permission(employee: &Value) -> bool {
+    if employee
+        .get("type")
+        .or_else(|| employee.get("role_type"))
         .and_then(Value::as_str)
-        .map(str::to_owned)
-        .unwrap_or_else(|| match status.as_u16() {
-            401 | 403 => "Telefon raqam yoki parol noto‘g‘ri".to_owned(),
-            404 => "Foydalanuvchi topilmadi".to_owned(),
-            _ => format!("Server xatosi ({status})"),
+        == Some("SUPERADMIN")
+    {
+        return true;
+    }
+
+    employee
+        .get("role_actions")
+        .or_else(|| employee.get("permissions"))
+        .and_then(Value::as_array)
+        .is_some_and(|actions| {
+            actions.iter().any(|action| {
+                action.get("route").and_then(Value::as_str) == Some("check-terminal-id")
+            })
         })
 }
 
-#[tauri::command]
-async fn login_and_open(
-    input: LoginInput,
-    webview: WebviewWindow,
-    auth: tauri::State<'_, Arc<PendingAuth>>,
-) -> Result<(), String> {
-    let response = reqwest::Client::new()
-        .post(format!("{API_URL}/v1/login"))
-        .header("Accept", "application/json")
-        .json(&json!({
-            "phone": input.phone,
-            "password": input.password,
-        }))
-        .send()
-        .await
-        .map_err(|_| "Server bilan bog‘lanib bo‘lmadi".to_owned())?;
+fn string_values(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value| match value {
+            Value::String(value) => Some(value.clone()),
+            Value::Number(value) => Some(value.to_string()),
+            _ => None,
+        })
+        .collect()
+}
 
-    let status = response.status();
-    let payload: Value = response.json().await.unwrap_or(Value::Null);
-    if !status.is_success() {
-        return Err(api_error_message(&payload, status));
+fn terminal_id(payload: &Value) -> Option<String> {
+    let sender = payload.pointer("/message/Sender")?.as_object()?;
+    ["ZReportFilesSent", "FullReceiptFilesSent", "TotalFilesSent"]
+        .iter()
+        .find_map(|key| {
+            sender
+                .get(*key)
+                .and_then(Value::as_object)
+                .filter(|report| !report.is_empty())
+                .and_then(|report| report.keys().next().cloned())
+        })
+}
+
+async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result<(), LoginError> {
+    if !has_terminal_permission(employee) {
+        return Ok(());
     }
 
-    let token = find_token(&payload)
-        .ok_or_else(|| "Server token qaytarmadi".to_owned())?
-        .to_owned();
+    let is_superadmin = employee
+        .get("type")
+        .or_else(|| employee.get("role_type"))
+        .and_then(Value::as_str)
+        == Some("SUPERADMIN");
+    let store = employee.get("store").filter(|value| value.is_object());
+    let store_name = store
+        .and_then(|store| store.get("name"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let allowed_terminal_ids = string_values(
+        store
+            .and_then(|store| store.get("terminal_ids"))
+            .or_else(|| employee.get("terminal_ids")),
+    );
 
-    *auth.0.lock().map_err(|_| "Ichki holat xatosi".to_owned())? = Some(token);
+    let status = client
+        .post(EPOS_URL)
+        .json(&json!({ "token": EPOS_TOKEN, "method": "checkStatus" }))
+        .send()
+        .await;
+
+    let status = match status {
+        Ok(response) => response.json::<Value>().await.unwrap_or(Value::Null),
+        Err(_) if !is_superadmin => {
+            return Err(LoginError {
+                code: "eposUnavailable",
+                message: "EPOS terminaliga ulanib bo‘lmadi. Kirish bloklandi.".to_owned(),
+                store_name,
+                terminal_id: None,
+                allowed_terminal_ids,
+            });
+        }
+        Err(_) => return Ok(()),
+    };
+
+    // Pharma guard EPOS xizmatining o‘zi error qaytarsa foydalanuvchini
+    // bloklamaydi; faqat lokal servisga umuman ulanib bo‘lmasa bloklaydi.
+    if status.get("error").and_then(Value::as_bool) == Some(true) {
+        return Ok(());
+    }
+
+    let terminal_response = client
+        .post(EPOS_URL)
+        .json(&json!({ "token": EPOS_TOKEN, "method": "getStatus" }))
+        .send()
+        .await;
+
+    let terminal_response = match terminal_response {
+        Ok(response) => response.json::<Value>().await.unwrap_or(Value::Null),
+        Err(_) if !is_superadmin => {
+            return Err(LoginError {
+                code: "eposUnavailable",
+                message: "EPOS terminaliga ulanib bo‘lmadi. Kirish bloklandi.".to_owned(),
+                store_name,
+                terminal_id: None,
+                allowed_terminal_ids,
+            });
+        }
+        Err(_) => return Ok(()),
+    };
+
+    // TerminalAccessGuard kabi terminal ID topilmasa kirishga ruxsat beradi.
+    let Some(current_terminal_id) = terminal_id(&terminal_response) else {
+        return Ok(());
+    };
+
+    if allowed_terminal_ids
+        .iter()
+        .any(|allowed| allowed == &current_terminal_id)
+    {
+        return Ok(());
+    }
+
+    Err(LoginError {
+        code: "terminalMismatch",
+        message: "Siz boshqa dorixonadasiz!".to_owned(),
+        store_name,
+        terminal_id: Some(current_terminal_id),
+        allowed_terminal_ids,
+    })
+}
+
+#[tauri::command]
+async fn validate_and_open(
+    token: String,
+    webview: WebviewWindow,
+    auth: tauri::State<'_, Arc<PendingAuth>>,
+) -> Result<(), LoginError> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|_| LoginError::simple("internal", "HTTP klientni yaratib bo‘lmadi"))?;
+
+    let employee_response = client
+        .get(format!("{API_URL}/v1/employee/info"))
+        .bearer_auth(&token)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|_| LoginError::simple("connection", "Xodim ma’lumotini olib bo‘lmadi"))?;
+    let employee_payload = employee_response
+        .json::<Value>()
+        .await
+        .unwrap_or(Value::Null);
+    let employee = employee_data(&employee_payload)
+        .ok_or_else(|| LoginError::simple("invalidResponse", "Xodim ma’lumoti topilmadi"))?;
+
+    validate_terminal(&client, employee).await?;
+
+    *auth
+        .0
+        .lock()
+        .map_err(|_| LoginError::simple("internal", "Ichki holat xatosi"))? = Some(token);
 
     let url = APP_URL
         .parse()
-        .map_err(|_| "FaceReg URL noto‘g‘ri".to_owned())?;
-    webview
-        .navigate(url)
-        .map_err(|error| format!("Web sahifani ochib bo‘lmadi: {error}"))
+        .map_err(|_| LoginError::simple("internal", "FaceReg URL noto‘g‘ri"))?;
+    webview.navigate(url).map_err(|error| {
+        LoginError::simple(
+            "navigation",
+            format!("Web sahifani ochib bo‘lmadi: {error}"),
+        )
+    })
 }
 
 const BROWSER_GUARDS: &str = r#"
@@ -112,8 +255,9 @@ pub fn run() {
     let page_auth = pending_auth.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_http::init())
         .manage(pending_auth)
-        .invoke_handler(tauri::generate_handler![login_and_open])
+        .invoke_handler(tauri::generate_handler![validate_and_open])
         .setup(|app| {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("FaceReg")

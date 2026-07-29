@@ -4,14 +4,16 @@
   "version": "1.0.0",
   "identifier": "uz.jsdev.facereg",
   "build": {
-    "frontendDist": "../placeholder"
+    "beforeDevCommand": "npm run frontend:build",
+    "beforeBuildCommand": "npm run frontend:build",
+    "frontendDist": "../dist"
   },
   "app": {
     "withGlobalTauri": true,
     "windows": [],
     "security": {
       "csp": null,
-      "capabilities": []
+      "capabilities": ["default"]
     }
   },
   "bundle": {
