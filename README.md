@@ -6,6 +6,9 @@ yengil Windows desktop ilova.
 ## Imkoniyatlar
 
 - faqat native Tauri oynasi va bitta WebView;
+- web ilovadagi dizayn bilan bir xil native boshlang‘ich login;
+- Tauri login bearer tokenini WebView sessiyasiga avtomatik uzatadi;
+- muvaffaqiyatli kirilganda web login sahifasi qayta ko‘rsatilmaydi;
 - sayt fayllari ilovaga ko‘chirilmaydi;
 - release build'da DevTools o‘chirilgan;
 - browser context menu va developer hotkeylar bloklangan;

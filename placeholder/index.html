@@ -1,5 +1,224 @@
 <!doctype html>
 <html lang="uz">
-  <head><meta charset="utf-8"><title>FaceReg</title></head>
-  <body></body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FaceReg — Kirish</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f3f5f8;
+        --bg-elevated: #ffffff;
+        --border: #e3e7ed;
+        --border-strong: #d5dae2;
+        --text: #172033;
+        --text-dim: #737d8c;
+        --accent: #315efb;
+        --danger: #dc3545;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        height: 100%;
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+
+      body { min-width: 320px; }
+      button, input { font: inherit; }
+
+      .auth-page {
+        width: 100vw;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .auth-card {
+        width: min(100%, 420px);
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        padding: 36px;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: var(--bg-elevated);
+        box-shadow: 0 18px 50px rgba(28, 39, 60, 0.1);
+      }
+
+      .auth-logo {
+        width: 72px;
+        height: 72px;
+        align-self: center;
+        border-radius: 18px;
+        object-fit: cover;
+      }
+
+      .auth-heading { text-align: center; }
+      .auth-heading h1 { margin: 0 0 8px; font-size: 1.8rem; }
+      .auth-heading p { margin: 0; color: var(--text-dim); line-height: 1.5; }
+
+      .auth-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        color: #3e4756;
+        font-size: 0.9rem;
+        font-weight: 600;
+      }
+
+      .auth-field input {
+        width: 100%;
+        padding: 13px 14px;
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        outline: none;
+        background: #fff;
+        color: var(--text);
+        transition: border-color 150ms, box-shadow 150ms;
+      }
+
+      .auth-field input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.15);
+      }
+
+      .auth-error {
+        display: none;
+        margin: -6px 0 0;
+        color: var(--danger);
+        font-size: 0.9rem;
+      }
+
+      .auth-error.visible { display: block; }
+
+      .auth-submit {
+        min-height: 46px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      .auth-submit:disabled { cursor: not-allowed; opacity: 0.65; }
+
+      @media (max-width: 520px) {
+        .auth-card { padding: 28px 22px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="auth-page">
+      <form class="auth-card" id="login-form">
+        <img
+          class="auth-logo"
+          src="https://face-reg-cyan.vercel.app/models/Pharma_scanner_rounded.png"
+          alt="FaceReg"
+        />
+        <div class="auth-heading">
+          <h1>Tizimga kirish</h1>
+          <p>Davom etish uchun telefon raqamingiz va parolingizni kiriting</p>
+        </div>
+
+        <label class="auth-field">
+          <span>Telefon raqami</span>
+          <input
+            id="phone"
+            type="tel"
+            inputmode="numeric"
+            autocomplete="tel"
+            value="+998"
+            placeholder="+998 90 123 45 67"
+          />
+        </label>
+
+        <label class="auth-field">
+          <span>Parol</span>
+          <input
+            id="password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Parolingizni kiriting"
+          />
+        </label>
+
+        <p class="auth-error" id="error" role="alert"></p>
+        <button class="auth-submit" id="submit" type="submit">Kirish</button>
+      </form>
+    </main>
+
+    <script>
+      const form = document.getElementById("login-form");
+      const phoneInput = document.getElementById("phone");
+      const passwordInput = document.getElementById("password");
+      const errorElement = document.getElementById("error");
+      const submitButton = document.getElementById("submit");
+
+      function localPhoneDigits(value) {
+        const digits = value.replace(/\D/g, "");
+        const withoutCountry = digits.startsWith("998") ? digits.slice(3) : digits;
+        return withoutCountry.slice(0, 9);
+      }
+
+      function formatPhone(value) {
+        const digits = localPhoneDigits(value);
+        const parts = [
+          digits.slice(0, 2),
+          digits.slice(2, 5),
+          digits.slice(5, 7),
+          digits.slice(7, 9),
+        ].filter(Boolean);
+        return `+998${parts.length ? ` ${parts.join(" ")}` : ""}`;
+      }
+
+      function showError(message) {
+        errorElement.textContent = message;
+        errorElement.classList.toggle("visible", Boolean(message));
+      }
+
+      phoneInput.addEventListener("input", () => {
+        phoneInput.value = formatPhone(phoneInput.value);
+      });
+
+      phoneInput.addEventListener("focus", () => {
+        phoneInput.setSelectionRange(phoneInput.value.length, phoneInput.value.length);
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const digits = localPhoneDigits(phoneInput.value);
+        if (digits.length !== 9) {
+          showError("Telefon raqamini to‘liq kiriting");
+          return;
+        }
+        if (!passwordInput.value) {
+          showError("Parolni kiriting");
+          return;
+        }
+
+        showError("");
+        submitButton.disabled = true;
+        submitButton.textContent = "Kirilmoqda...";
+
+        try {
+          await window.__TAURI__.core.invoke("login_and_open", {
+            input: {
+              phone: `998${digits}`,
+              password: passwordInput.value,
+            },
+          });
+        } catch (error) {
+          showError(typeof error === "string" ? error : "Tizimga kirib bo‘lmadi");
+          submitButton.disabled = false;
+          submitButton.textContent = "Kirish";
+        }
+      });
+    </script>
+  </body>
 </html>
