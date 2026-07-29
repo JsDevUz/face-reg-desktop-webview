@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>NSCameraUsageDescription</key>
-  <string>FaceReg davomatni yuz orqali tasdiqlash uchun kameradan foydalanadi.</string>
+  <string>Xodimlar tizimi davomatni yuz orqali tasdiqlash uchun kameradan foydalanadi.</string>
 </dict>
 </plist>

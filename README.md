@@ -1,4 +1,4 @@
-# FaceReg Desktop — Tauri
+# Xodimlar tizimi — Tauri
 
 `https://face-reg-cyan.vercel.app/` saytini Tauri v2 WebView ichida ochadigan
 yengil Windows desktop ilova.
@@ -25,8 +25,8 @@ yengil Windows desktop ilova.
 
 1. `master` branchga push qiling.
 2. **Actions → Build Tauri Windows EXE** workflow'ini oching.
-3. Build tugagach **Artifacts** ichidan `FaceReg-Tauri-Windows-x64` ni yuklang.
-4. ZIP ichidagi `FaceReg_*_x64-setup.exe` installer'ni ishga tushiring.
+3. Build tugagach **Artifacts** ichidan `Xodimlar-tizimi-Windows-x64` ni yuklang.
+4. ZIP ichidagi `Xodimlar tizimi_*_x64-setup.exe` installer'ni ishga tushiring.
 
 Build Windows runner'da bajariladi. Foydalanuvchi kompyuterida Node.js, Rust yoki
 .NET kerak emas. Tauri Windows WebView2 Runtime'dan foydalanadi; installer kerak

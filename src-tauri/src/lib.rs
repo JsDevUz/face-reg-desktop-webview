@@ -375,7 +375,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![validate_and_open])
         .setup(|app| {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("FaceReg")
+                .title("Xodimlar tizimi")
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(800.0, 600.0)
                 .maximized(true)
