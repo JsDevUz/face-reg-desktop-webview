@@ -125,6 +125,9 @@ function showBlocked(error) {
   blockedMessage.textContent = [
     error.message || "Bu foydalanuvchi uchun terminal mos kelmadi.",
     ...details,
+    error.diagnostics
+      ? `\nEPOS diagnostika:\n${JSON.stringify(error.diagnostics, null, 2)}`
+      : "",
   ].join("\n");
   blockedCard.hidden = false;
 }

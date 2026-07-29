@@ -19,6 +19,7 @@ struct LoginError {
     store_name: Option<String>,
     terminal_id: Option<String>,
     allowed_terminal_ids: Vec<String>,
+    diagnostics: Option<Value>,
 }
 
 impl LoginError {
@@ -29,8 +30,28 @@ impl LoginError {
             store_name: None,
             terminal_id: None,
             allowed_terminal_ids: Vec::new(),
+            diagnostics: None,
         }
     }
+}
+
+fn epos_diagnostics(method: &str, response: Option<&Value>, error: Option<&str>) -> Value {
+    json!({
+        "request": {
+            "method": "POST",
+            "url": EPOS_URL,
+            "headers": {
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            },
+            "body": {
+                "token": EPOS_TOKEN,
+                "method": method
+            }
+        },
+        "response": response,
+        "transportError": error
+    })
 }
 
 fn employee_data(payload: &Value) -> Option<&Value> {
@@ -82,6 +103,7 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
             store_name,
             terminal_id: None,
             allowed_terminal_ids,
+            diagnostics: None,
         });
     }
 
@@ -92,6 +114,7 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
             store_name,
             terminal_id: None,
             allowed_terminal_ids,
+            diagnostics: None,
         });
     }
 
@@ -103,13 +126,18 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
 
     let status = match status {
         Ok(response) => response.json::<Value>().await.unwrap_or(Value::Null),
-        Err(_) => {
+        Err(error) => {
             return Err(LoginError {
                 code: "eposUnavailable",
                 message: "EPOS terminaliga ulanib bo‘lmadi. Kirish bloklandi.".to_owned(),
                 store_name,
                 terminal_id: None,
                 allowed_terminal_ids,
+                diagnostics: Some(epos_diagnostics(
+                    "checkStatus",
+                    None,
+                    Some(&error.to_string()),
+                )),
             });
         }
     };
@@ -121,6 +149,7 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
             store_name,
             terminal_id: None,
             allowed_terminal_ids,
+            diagnostics: Some(epos_diagnostics("checkStatus", Some(&status), None)),
         });
     }
 
@@ -132,13 +161,18 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
 
     let terminal_response = match terminal_response {
         Ok(response) => response.json::<Value>().await.unwrap_or(Value::Null),
-        Err(_) => {
+        Err(error) => {
             return Err(LoginError {
                 code: "eposUnavailable",
                 message: "EPOS terminaliga ulanib bo‘lmadi. Kirish bloklandi.".to_owned(),
                 store_name,
                 terminal_id: None,
                 allowed_terminal_ids,
+                diagnostics: Some(epos_diagnostics(
+                    "getStatus",
+                    None,
+                    Some(&error.to_string()),
+                )),
             });
         }
     };
@@ -150,6 +184,11 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
             store_name,
             terminal_id: None,
             allowed_terminal_ids,
+            diagnostics: Some(epos_diagnostics(
+                "getStatus",
+                Some(&terminal_response),
+                None,
+            )),
         });
     };
 
@@ -166,6 +205,11 @@ async fn validate_terminal(client: &reqwest::Client, employee: &Value) -> Result
         store_name,
         terminal_id: Some(current_terminal_id),
         allowed_terminal_ids,
+        diagnostics: Some(epos_diagnostics(
+            "getStatus",
+            Some(&terminal_response),
+            None,
+        )),
     })
 }
 
