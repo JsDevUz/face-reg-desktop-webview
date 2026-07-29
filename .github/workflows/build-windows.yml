@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Build Tauri Windows EXE
 
 on:
   workflow_dispatch:
@@ -17,30 +17,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
-          dotnet-version: 8.0.x
+          node-version: 24
+          cache: npm
 
-      - name: Restore
-        run: dotnet restore
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Publish lightweight EXE
-        run: >
-          dotnet publish FaceRegDesktop.csproj
-          --configuration Release
-          --runtime win-x64
-          --self-contained false
-          --output publish
-          -p:PublishSingleFile=true
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:DebugType=None
-          -p:DebugSymbols=false
+      - name: Install Tauri CLI
+        run: npm ci
 
-      - name: Upload EXE
+      - name: Generate Windows icons
+        run: npm run icon
+
+      - name: Build NSIS installer
+        run: npm run build
+
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: FaceReg-Windows-x64
-          path: publish/
+          name: FaceReg-Tauri-Windows-x64
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
           retention-days: 30

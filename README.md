@@ -1,30 +1,29 @@
-# FaceReg Desktop
+# FaceReg Desktop — Tauri
 
-`https://face-reg-cyan.vercel.app/` saytini Windows WebView2 ichida ochadigan
-yengil desktop ilova.
+`https://face-reg-cyan.vercel.app/` saytini Tauri v2 WebView ichida ochadigan
+yengil Windows desktop ilova.
 
 ## Imkoniyatlar
 
-- faqat bitta WebView oynasi;
-- DevTools, browser context menu va developer hotkeylar bloklangan;
+- faqat native Tauri oynasi va bitta WebView;
+- sayt fayllari ilovaga ko‘chirilmaydi;
+- release build'da DevTools o‘chirilgan;
+- browser context menu va developer hotkeylar bloklangan;
 - `F5` yoki `Ctrl+R` bilan refresh;
-- yangi oynada ochiladigan linklar shu oynaning o‘zida ochiladi;
-- sayt fayllari kompyuterga bundle qilinmaydi.
+- yangi oynada ochiladigan linklar shu WebView ichida ochiladi;
+- kamera va mikrofon ruxsatlarini saytning o‘zi boshqaradi.
 
-## GitHub orqali EXE build
+## GitHub orqali `.exe` build
 
-1. Repoga commit qilib GitHub'ga push qiling.
-2. GitHub'da **Actions → Build Windows EXE → Run workflow** ni bosing.
-3. Build tugagach, **Artifacts** bo‘limidan `FaceReg-Windows-x64` ni yuklab oling.
-4. ZIP ichidagi fayllarni bitta papkada saqlab, `FaceReg.exe` ni oching.
+1. `master` branchga push qiling.
+2. **Actions → Build Tauri Windows EXE** workflow'ini oching.
+3. Build tugagach **Artifacts** ichidan `FaceReg-Tauri-Windows-x64` ni yuklang.
+4. ZIP ichidagi `FaceReg_*_x64-setup.exe` installer'ni ishga tushiring.
 
-Build framework-dependent qilingan: natija kichik bo‘ladi, lekin Windows
-kompyuterda **.NET 8 Desktop Runtime (x64)** va **Microsoft Edge WebView2
-Runtime** bo‘lishi kerak. Zamonaviy Windows 10/11 tizimlarida WebView2 odatda
-allaqachon o‘rnatilgan bo‘ladi.
+Build Windows runner'da bajariladi. Foydalanuvchi kompyuterida Node.js, Rust yoki
+.NET kerak emas. Tauri Windows WebView2 Runtime'dan foydalanadi; installer kerak
+bo‘lsa WebView2 bootstrapper orqali uni o‘rnatadi.
 
-## Xavfsizlik izohi
-
-DevTools foydalanuvchi interfeysidan yopilgan. Bu odatiy foydalanuvchining
-inspector ochishini to‘xtatadi, ammo foydalanuvchining o‘z kompyuterida mutlaq
-teskari tahlil himoyasini kafolatlab bo‘lmaydi.
+DevTools foydalanuvchi interfeysi va odatiy hotkeylardan yopilgan. Foydalanuvchi
+o‘z kompyuterida ishlayotgan har qanday dastur uchun mutlaq reverse-engineering
+himoyasini kafolatlab bo‘lmaydi.

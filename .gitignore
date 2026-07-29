@@ -1,5 +1,4 @@
-bin/
-obj/
-publish/
-*.user
-*.suo
+node_modules/
+src-tauri/target/
+src-tauri/icons/
+dist/
