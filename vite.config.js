@@ -2,7 +2,7 @@ import { defineConfig, loadEnv } from "vite";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const appMode = (env.MODE || "").toUpperCase();
+  const appMode = (process.env.MODE || env.MODE || "").toUpperCase();
   if (!["DEV", "PROD"].includes(appMode)) {
     throw new Error(".env ichida MODE=DEV yoki MODE=PROD bo‘lishi shart");
   }
