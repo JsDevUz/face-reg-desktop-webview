@@ -10,6 +10,9 @@
       "allow": [
         {
           "url": "https://api.tayin.uz/**"
+        },
+        {
+          "url": "https://api.pharma-cosmos.uz:4443/**"
         }
       ]
     }

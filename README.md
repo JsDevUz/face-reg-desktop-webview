@@ -3,6 +3,28 @@
 `https://face-reg-cyan.vercel.app/` saytini Tauri v2 WebView ichida ochadigan
 yengil Windows desktop ilova.
 
+## Muhit rejimi
+
+Repo ildizidagi `.env` faylda faqat bittasini tanlang:
+
+```env
+MODE=DEV
+```
+
+yoki:
+
+```env
+MODE=PROD
+```
+
+- `DEV` barcha asosiy API requestlarni `https://api.tayin.uz` ga yuboradi,
+  EPOS uchun `https://api.tayin.uz/v1/helper/epos` ishlatadi va tayin mock
+  javobini qabul qiladi.
+- `PROD` barcha asosiy API requestlarni
+  `https://api.pharma-cosmos.uz:4443` ga yuboradi, EPOS uchun
+  `http://localhost:8347/uzpos` ishlatadi va terminal ID qat’iy mos kelishini
+  talab qiladi.
+
 ## Imkoniyatlar
 
 - faqat native Tauri oynasi va bitta WebView;

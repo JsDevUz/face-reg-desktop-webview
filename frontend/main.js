@@ -2,7 +2,8 @@ import axios, { isAxiosError } from "axios";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
-const API_BASE_URL = "https://api.tayin.uz";
+const APP_MODE = __APP_MODE__;
+const API_BASE_URL = __API_BASE_URL__;
 const client = axios.create({
   baseURL: API_BASE_URL,
   headers: {

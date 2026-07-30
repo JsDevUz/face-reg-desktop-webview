@@ -4,11 +4,23 @@ use std::sync::{Arc, Mutex};
 use tauri::{webview::PageLoadEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const APP_URL: &str = "https://face-reg-cyan.vercel.app/";
-const API_URL: &str = "https://api.tayin.uz";
+const APP_MODE: &str = env!("APP_MODE");
 const EPOS_TOKEN: &str = "DXJFX32CN1296678504F2";
 
+fn is_dev() -> bool {
+    APP_MODE == "DEV"
+}
+
+fn api_url() -> &'static str {
+    if is_dev() {
+        "https://api.tayin.uz"
+    } else {
+        "https://api.pharma-cosmos.uz:4443"
+    }
+}
+
 fn epos_url() -> &'static str {
-    if API_URL == "https://api.tayin.uz" {
+    if is_dev() {
         "https://api.tayin.uz/v1/helper/epos"
     } else {
         "http://localhost:8347/uzpos"
@@ -50,7 +62,7 @@ fn epos_diagnostics(method: &str, response: Option<&Value>, error: Option<&str>)
             "headers": {
                 "Accept": "application/json",
                 "Content-Type": "application/json; charset=utf-8",
-                "Authorization": if API_URL == "https://api.tayin.uz" {
+                "Authorization": if is_dev() {
                     "Bearer <login-token>"
                 } else {
                     "<not-sent>"
@@ -107,7 +119,7 @@ fn epos_request(
         .header("Content-Type", "application/json; charset=utf-8")
         .json(&json!({ "token": EPOS_TOKEN, "method": method }));
 
-    if API_URL == "https://api.tayin.uz" {
+    if is_dev() {
         request.bearer_auth(bearer_token)
     } else {
         request
@@ -183,7 +195,7 @@ async fn validate_terminal(
         }
     };
 
-    let is_tayin_mock_success = API_URL == "https://api.tayin.uz"
+    let is_tayin_mock_success = is_dev()
         && status.get("error").and_then(Value::as_bool) == Some(false)
         && status.get("message").and_then(Value::as_str) == Some("OK!")
         && terminal_response.get("error").and_then(Value::as_bool) == Some(false)
@@ -270,7 +282,7 @@ async fn validate_and_open(
         .map_err(|_| LoginError::simple("internal", "HTTP klientni yaratib bo‘lmadi"))?;
 
     let employee_response = client
-        .get(format!("{API_URL}/v1/employee/info"))
+        .get(format!("{}/v1/employee/info", api_url()))
         .bearer_auth(&token)
         .header("Accept", "application/json")
         .send()
