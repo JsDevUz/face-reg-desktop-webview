@@ -1,7 +1,6 @@
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
-use tauri::{webview::PageLoadEvent, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const APP_URL: &str = "https://face-reg-cyan.vercel.app/";
 const APP_MODE: &str = env!("APP_MODE");
@@ -26,9 +25,6 @@ fn epos_url() -> &'static str {
         "http://localhost:8347/uzpos"
     }
 }
-
-#[derive(Default)]
-struct PendingAuth(Mutex<Option<String>>);
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -271,11 +267,7 @@ async fn validate_terminal(
 }
 
 #[tauri::command]
-async fn validate_and_open(
-    token: String,
-    webview: WebviewWindow,
-    auth: tauri::State<'_, Arc<PendingAuth>>,
-) -> Result<(), LoginError> {
+async fn validate_and_open(token: String, webview: WebviewWindow) -> Result<(), LoginError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
         .build()
@@ -297,14 +289,10 @@ async fn validate_and_open(
 
     validate_terminal(&client, &token, employee).await?;
 
-    *auth
-        .0
-        .lock()
-        .map_err(|_| LoginError::simple("internal", "Ichki holat xatosi"))? = Some(token);
-
-    let url = APP_URL
+    let mut url: url::Url = APP_URL
         .parse()
         .map_err(|_| LoginError::simple("internal", "FaceReg URL noto‘g‘ri"))?;
+    url.set_fragment(Some(&format!("desktop-auth={token}")));
     webview.navigate(url).map_err(|error| {
         LoginError::simple(
             "navigation",
@@ -315,6 +303,21 @@ async fn validate_and_open(
 
 const BROWSER_GUARDS: &str = r#"
 (() => {
+  if (location.hostname === 'face-reg-cyan.vercel.app') {
+    const params = new URLSearchParams(location.hash.slice(1));
+    const desktopToken = params.get('desktop-auth');
+    if (desktopToken) {
+      localStorage.setItem('face-reg-auth', JSON.stringify({
+        state: {
+          token: desktopToken,
+          isAuthenticated: true
+        },
+        version: 0
+      }));
+      history.replaceState(null, '', `${location.pathname}${location.search}`);
+    }
+  }
+
   if (window.__FACE_REG_DESKTOP_GUARDS__) return;
   window.__FACE_REG_DESKTOP_GUARDS__ = true;
 
@@ -378,9 +381,6 @@ const BROWSER_GUARDS: &str = r#"
 "#;
 
 pub fn run() {
-    let pending_auth = Arc::new(PendingAuth::default());
-    let page_auth = pending_auth.clone();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -390,7 +390,6 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_http::init())
-        .manage(pending_auth)
         .invoke_handler(tauri::generate_handler![validate_and_open])
         .setup(|app| {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
@@ -400,46 +399,6 @@ pub fn run() {
                 .maximized(true)
                 .devtools(cfg!(debug_assertions))
                 .initialization_script(BROWSER_GUARDS)
-                .on_page_load(move |webview, payload| {
-                    if payload.event() != PageLoadEvent::Finished
-                        || payload.url().origin().ascii_serialization()
-                            != "https://face-reg-cyan.vercel.app"
-                    {
-                        return;
-                    }
-
-                    // Token faqat bir marta remote origin'ga uzatiladi. Web
-                    // restoreSession tokenni rad etsa uni qayta-qayta yozish
-                    // reload loop hosil qilmasligi kerak.
-                    let token = page_auth.0.lock().ok().and_then(|mut guard| guard.take());
-                    let Some(token) = token else {
-                        return;
-                    };
-
-                    let persisted = json!({
-                        "state": {
-                            "token": token,
-                            "isAuthenticated": true
-                        },
-                        "version": 0
-                    })
-                    .to_string();
-                    let persisted_js = serde_json::to_string(&persisted)
-                        .expect("serialized auth state must be valid JavaScript");
-
-                    let script = format!(
-                        r#"
-                        (() => {{
-                          const nextAuth = {persisted_js};
-                          if (localStorage.getItem('face-reg-auth') !== nextAuth) {{
-                            localStorage.setItem('face-reg-auth', nextAuth);
-                            location.reload();
-                          }}
-                        }})();
-                        "#
-                    );
-                    let _ = webview.eval(script);
-                })
                 .build()?;
 
             Ok(())
