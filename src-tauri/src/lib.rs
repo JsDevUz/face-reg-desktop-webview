@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
-use tauri::{webview::PageLoadEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{webview::PageLoadEvent, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const APP_URL: &str = "https://face-reg-cyan.vercel.app/";
 const APP_MODE: &str = env!("APP_MODE");
@@ -382,6 +382,13 @@ pub fn run() {
     let page_auth = pending_auth.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_http::init())
         .manage(pending_auth)
         .invoke_handler(tauri::generate_handler![validate_and_open])
