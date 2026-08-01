@@ -3,6 +3,7 @@ use std::{fs, path::PathBuf};
 fn main() {
     let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.env");
     println!("cargo:rerun-if-changed={}", env_path.display());
+    println!("cargo:rerun-if-env-changed=MODE");
 
     let mode = std::env::var("MODE")
         .ok()

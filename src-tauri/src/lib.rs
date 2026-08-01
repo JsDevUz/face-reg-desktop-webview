@@ -266,6 +266,19 @@ async fn validate_terminal(
     })
 }
 
+fn has_check_terminal_permission(payload: &Value) -> bool {
+    fn contains_check_terminal(v: &Value) -> bool {
+        match v {
+            Value::String(s) => s == "check:terminal",
+            Value::Array(arr) => arr.iter().any(contains_check_terminal),
+            Value::Object(map) => map.values().any(contains_check_terminal),
+            _ => false,
+        }
+    }
+
+    contains_check_terminal(payload)
+}
+
 #[tauri::command]
 async fn validate_and_open(token: String, webview: WebviewWindow) -> Result<(), LoginError> {
     let client = reqwest::Client::builder()
@@ -273,21 +286,57 @@ async fn validate_and_open(token: String, webview: WebviewWindow) -> Result<(), 
         .build()
         .map_err(|_| LoginError::simple("internal", "HTTP klientni yaratib bo‘lmadi"))?;
 
-    let employee_response = client
-        .get(format!("{}/v1/employee/info", api_url()))
+    let employee_url = format!("{}/v1/employee/info", api_url());
+    let employee_response = match client
+        .get(&employee_url)
         .bearer_auth(&token)
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|_| LoginError::simple("connection", "Xodim ma’lumotini olib bo‘lmadi"))?;
+    {
+        Ok(res) => res,
+        Err(err) => {
+            return Err(LoginError {
+                code: "connection",
+                message: "Xodim ma’lumotini olib bo‘lmadi".to_owned(),
+                store_name: None,
+                terminal_id: None,
+                allowed_terminal_ids: Vec::new(),
+                diagnostics: Some(json!({
+                    "url": employee_url,
+                    "error": err.to_string(),
+                })),
+            });
+        }
+    };
+
+    let status_code = employee_response.status().as_u16();
     let employee_payload = employee_response
         .json::<Value>()
         .await
         .unwrap_or(Value::Null);
-    let employee = employee_data(&employee_payload)
-        .ok_or_else(|| LoginError::simple("invalidResponse", "Xodim ma’lumoti topilmadi"))?;
 
-    validate_terminal(&client, &token, employee).await?;
+    let employee = match employee_data(&employee_payload) {
+        Some(emp) => emp,
+        None => {
+            return Err(LoginError {
+                code: "invalidResponse",
+                message: "Xodim ma’lumoti topilmadi".to_owned(),
+                store_name: None,
+                terminal_id: None,
+                allowed_terminal_ids: Vec::new(),
+                diagnostics: Some(json!({
+                    "url": employee_url,
+                    "status": status_code,
+                    "payload": employee_payload,
+                })),
+            });
+        }
+    };
+
+    if has_check_terminal_permission(&employee_payload) {
+        validate_terminal(&client, &token, employee).await?;
+    }
 
     let mut url: url::Url = APP_URL
         .parse()
