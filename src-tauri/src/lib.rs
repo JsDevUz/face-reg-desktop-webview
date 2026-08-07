@@ -372,7 +372,7 @@ const BROWSER_GUARDS: &str = r#"
   window.addEventListener('contextmenu', (event) => event.preventDefault(), true);
 
   window.addEventListener('keydown', (event) => {
-    const key = event.key.toLowerCase();
+    const key = (event.key || '').toLowerCase();
     const refresh = event.key === 'F5' || (event.ctrlKey && key === 'r');
     const devtools =
       event.key === 'F12' ||
