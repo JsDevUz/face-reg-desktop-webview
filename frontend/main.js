@@ -6,6 +6,7 @@ const APP_MODE = __APP_MODE__;
 const API_BASE_URL = __API_BASE_URL__;
 const client = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 120000,
   headers: {
     Accept: "application/json",
     "Content-Type": "application/json; charset=utf-8",
@@ -49,10 +50,20 @@ function findAccessToken(payload) {
   return findAccessToken(payload.data);
 }
 
-function errorMessage(payload, fallback) {
-  return typeof payload?.message === "string" && payload.message
-    ? payload.message
-    : fallback;
+function formatErrorMessage(status, payloadMessage, rawError) {
+  if (status === 409) return "Parol xato";
+  if (status === 404) return "Xodim topilmadi";
+  const errStr = String(rawError || "").toLowerCase();
+  if (
+    errStr.includes("timeout") ||
+    errStr.includes("timed out") ||
+    errStr.includes("econnaborted")
+  ) {
+    return "Server javob berishi juda uzoq davom etdi (Timeout)";
+  }
+  if (payloadMessage && typeof payloadMessage === "string") return payloadMessage;
+  if (status) return `Server xatosi (${status})`;
+  return "Serverga ulanib bo‘lmadi";
 }
 
 async function login(phone, password) {
@@ -62,28 +73,26 @@ async function login(phone, password) {
   };
 
   if (isTauri()) {
-    const response = await tauriFetch(`${API_BASE_URL}/v1/login`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ phone, password }),
-    });
+    let response;
+    try {
+      response = await tauriFetch(`${API_BASE_URL}/v1/login`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ phone, password }),
+      });
+    } catch (err) {
+      throw new Error(formatErrorMessage(null, null, err?.message || err));
+    }
+
     let payload = null;
     try {
       payload = await response.json();
     } catch {
       // Server ayrim xatolarda bo‘sh body qaytarishi mumkin.
     }
-    console.info("FaceReg login response", {
-      status: response.status,
-      ok: response.ok,
-      payload,
-    });
+
     if (!response.ok) {
-      const error = new Error(
-        errorMessage(payload, `API xatosi (${response.status})`),
-      );
-      error.diagnostics = { status: response.status, payload };
-      throw error;
+      throw new Error(formatErrorMessage(response.status, payload?.message, null));
     }
     return findAccessToken(payload);
   }
@@ -92,27 +101,22 @@ async function login(phone, password) {
     const response = await client.post("/v1/login", { phone, password });
     return findAccessToken(response.data);
   } catch (reason) {
-    if (isAxiosError(reason) && reason.response) {
-      const error = new Error(
-        errorMessage(reason.response.data, `API xatosi (${reason.response.status})`),
+    if (isAxiosError(reason)) {
+      const status = reason.response?.status;
+      const payloadMessage = reason.response?.data?.message;
+      throw new Error(
+        formatErrorMessage(status, payloadMessage, reason.code || reason.message)
       );
-      error.diagnostics = {
-        status: reason.response.status,
-        payload: reason.response.data,
-      };
-      throw error;
     }
-    throw reason;
+    throw new Error(formatErrorMessage(null, null, reason?.message || reason));
   }
 }
 
-function showError(message, diagnostics = null) {
+function showError(message) {
   errorElement.textContent = message;
   errorElement.classList.toggle("visible", Boolean(message));
-  responseDetails.classList.toggle("visible", Boolean(diagnostics));
-  responseBody.textContent = diagnostics
-    ? JSON.stringify(diagnostics, null, 2)
-    : "";
+  if (responseDetails) responseDetails.classList.remove("visible");
+  if (responseBody) responseBody.textContent = "";
 }
 
 function showBlocked(error) {
@@ -126,9 +130,6 @@ function showBlocked(error) {
   blockedMessage.textContent = [
     error.message || "Bu foydalanuvchi uchun terminal mos kelmadi.",
     ...details,
-    error.diagnostics
-      ? `\nEPOS diagnostika:\n${JSON.stringify(error.diagnostics, null, 2)}`
-      : "",
   ].join("\n");
   blockedCard.hidden = false;
 }
@@ -184,8 +185,7 @@ form.addEventListener("submit", async (event) => {
     } else {
       showError(
         error?.message ||
-          (typeof error === "string" ? error : "Tizimga kirib bo‘lmadi"),
-        error?.diagnostics || null,
+          (typeof error === "string" ? error : "Tizimga kirib bo‘lmadi")
       );
       submitButton.disabled = false;
       submitButton.textContent = "Kirish";

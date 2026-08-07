@@ -282,7 +282,9 @@ fn has_check_terminal_permission(payload: &Value) -> bool {
 #[tauri::command]
 async fn validate_and_open(token: String, webview: WebviewWindow) -> Result<(), LoginError> {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(8))
+        .timeout(std::time::Duration::from_secs(120))
+        .danger_accept_invalid_certs(true)
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
         .build()
         .map_err(|_| LoginError::simple("internal", "HTTP klientni yaratib bo‘lmadi"))?;
 
@@ -296,21 +298,29 @@ async fn validate_and_open(token: String, webview: WebviewWindow) -> Result<(), 
     {
         Ok(res) => res,
         Err(err) => {
-            return Err(LoginError {
-                code: "connection",
-                message: "Xodim ma’lumotini olib bo‘lmadi".to_owned(),
-                store_name: None,
-                terminal_id: None,
-                allowed_terminal_ids: Vec::new(),
-                diagnostics: Some(json!({
-                    "url": employee_url,
-                    "error": err.to_string(),
-                })),
-            });
+            let msg = if err.is_timeout() {
+                "Server javob berishi juda uzoq davom etdi (Timeout)"
+            } else {
+                "Serverga ulanib bo‘lmadi"
+            };
+            return Err(LoginError::simple("connection", msg));
         }
     };
 
     let status_code = employee_response.status().as_u16();
+    if status_code == 409 {
+        return Err(LoginError::simple("auth", "Parol xato"));
+    }
+    if status_code == 404 {
+        return Err(LoginError::simple("notFound", "Xodim topilmadi"));
+    }
+    if !employee_response.status().is_success() {
+        return Err(LoginError::simple(
+            "httpError",
+            format!("Server xatosi ({status_code})"),
+        ));
+    }
+
     let employee_payload = employee_response
         .json::<Value>()
         .await
@@ -319,18 +329,7 @@ async fn validate_and_open(token: String, webview: WebviewWindow) -> Result<(), 
     let employee = match employee_data(&employee_payload) {
         Some(emp) => emp,
         None => {
-            return Err(LoginError {
-                code: "invalidResponse",
-                message: "Xodim ma’lumoti topilmadi".to_owned(),
-                store_name: None,
-                terminal_id: None,
-                allowed_terminal_ids: Vec::new(),
-                diagnostics: Some(json!({
-                    "url": employee_url,
-                    "status": status_code,
-                    "payload": employee_payload,
-                })),
-            });
+            return Err(LoginError::simple("invalidResponse", "Xodim ma’lumoti topilmadi"));
         }
     };
 
