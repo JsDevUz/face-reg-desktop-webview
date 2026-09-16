@@ -1,6 +1,6 @@
 [package]
 name = "face-reg-desktop"
-version = "1.0.0"
+version = "1.0.1"
 description = "Lightweight FaceReg desktop WebView"
 authors = ["JsDevUz"]
 edition = "2021"

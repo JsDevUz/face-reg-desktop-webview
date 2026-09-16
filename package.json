@@ -1,6 +1,6 @@
 {
   "name": "face-reg-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "icon": "tauri icon src-tauri/icon.svg --output src-tauri/icons",

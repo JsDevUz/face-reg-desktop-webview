@@ -2,7 +2,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-const APP_URL: &str = "https://face-reg-cyan.vercel.app/";
+const APP_URL: &str = env!("APP_URL");
+const API_URL: &str = env!("API_URL");
 const APP_MODE: &str = env!("APP_MODE");
 const EPOS_TOKEN: &str = "DXJFX32CN1296678504F2";
 
@@ -11,11 +12,7 @@ fn is_dev() -> bool {
 }
 
 fn api_url() -> &'static str {
-    if is_dev() {
-        "https://api.tayin.uz"
-    } else {
-        "https://api.pharma-cosmos.uz:4443"
-    }
+    API_URL
 }
 
 fn epos_url() -> &'static str {
@@ -92,6 +89,21 @@ fn string_values(value: Option<&Value>) -> Vec<String> {
 }
 
 fn terminal_id(payload: &Value) -> Option<String> {
+    if let Some(id) = payload.pointer("/message/TerminalID").and_then(Value::as_str) {
+        return Some(id.to_string());
+    }
+    if let Some(id) = payload.pointer("/message/terminalId").and_then(Value::as_str) {
+        return Some(id.to_string());
+    }
+    if let Some(id) = payload.pointer("/message/terminal_id").and_then(Value::as_str) {
+        return Some(id.to_string());
+    }
+    if let Some(id) = payload.pointer("/message/TerminalID").and_then(Value::as_i64) {
+        return Some(id.to_string());
+    }
+    if let Some(id) = payload.pointer("/message/terminalId").and_then(Value::as_i64) {
+        return Some(id.to_string());
+    }
     let sender = payload.pointer("/message/Sender")?.as_object()?;
     ["ZReportFilesSent", "FullReceiptFilesSent", "TotalFilesSent"]
         .iter()
@@ -171,7 +183,12 @@ async fn validate_terminal(
         });
     }
 
-    let terminal_response = epos_request(client, bearer_token, "getStatus").send().await;
+    let mut terminal_response = epos_request(client, bearer_token, "getInfo").send().await;
+    if let Ok(ref res) = terminal_response {
+        if !res.status().is_success() {
+            terminal_response = epos_request(client, bearer_token, "getStatus").send().await;
+        }
+    }
 
     let terminal_response = match terminal_response {
         Ok(response) => response.json::<Value>().await.unwrap_or(Value::Null),
@@ -267,9 +284,15 @@ async fn validate_terminal(
 }
 
 fn has_check_terminal_permission(payload: &Value) -> bool {
+    let position = payload.pointer("/data/position").and_then(Value::as_str);
+    let user_type = payload.pointer("/data/type").and_then(Value::as_str);
+    if position == Some("SUPERADMIN") || user_type == Some("SUPERADMIN") {
+        return false;
+    }
+
     fn contains_check_terminal(v: &Value) -> bool {
         match v {
-            Value::String(s) => s == "check:terminal",
+            Value::String(s) => s == "check:terminal" || s == "check-terminal-id" || s == "check_terminal_id",
             Value::Array(arr) => arr.iter().any(contains_check_terminal),
             Value::Object(map) => map.values().any(contains_check_terminal),
             _ => false,
@@ -351,7 +374,7 @@ async fn validate_and_open(token: String, webview: WebviewWindow) -> Result<(), 
 
 const BROWSER_GUARDS: &str = r#"
 (() => {
-  if (location.hostname === 'face-reg-cyan.vercel.app') {
+  if (location.hostname === 'face-reg-cyan.vercel.app' || location.hostname.endsWith('.vercel.app') || location.hostname.includes('face-reg')) {
     const params = new URLSearchParams(location.hash.slice(1));
     const desktopToken = params.get('desktop-auth');
     if (desktopToken) {
@@ -397,7 +420,7 @@ const BROWSER_GUARDS: &str = r#"
     return window;
   };
 
-  if (location.hostname === 'face-reg-cyan.vercel.app') {
+  if (location.hostname === 'face-reg-cyan.vercel.app' || location.hostname.endsWith('.vercel.app') || location.hostname.includes('face-reg')) {
     const showRuntimeError = (value) => {
       const message = value?.stack || value?.message || String(value);
       let panel = document.getElementById('__face_reg_runtime_error__');
@@ -445,7 +468,7 @@ pub fn run() {
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(800.0, 600.0)
                 .maximized(true)
-                .devtools(cfg!(debug_assertions))
+                .devtools(true)
                 .initialization_script(BROWSER_GUARDS)
                 .build()?;
 
