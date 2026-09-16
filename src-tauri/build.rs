@@ -20,7 +20,7 @@ fn main() {
                 .find_map(|line| {
                     let prefix = format!("{key}=");
                     line.strip_prefix(&prefix).map(|v| {
-                        v.trim_matches('"').trim_matches(''').trim().to_owned()
+                        v.trim_matches('"').trim_matches('\'').trim().to_owned()
                     })
                 })
         })
