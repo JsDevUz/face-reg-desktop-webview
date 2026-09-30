@@ -364,89 +364,155 @@ async fn validate_and_open(token: String, webview: WebviewWindow) -> Result<(), 
         .parse()
         .map_err(|_| LoginError::simple("internal", "FaceReg URL noto‘g‘ri"))?;
     url.set_fragment(Some(&format!("desktop-auth={token}")));
-    webview.navigate(url).map_err(|error| {
-        LoginError::simple(
-            "navigation",
-            format!("Web sahifani ochib bo‘lmadi: {error}"),
-        )
-    })
+    let app = webview.app_handle().clone();
+
+    // Avvalgi face_reg oynasi bo‘lsa yop (WebView2 stale state oldini olish)
+    if let Some(old_win) = app.get_webview_window("face_reg") {
+        old_win.close().ok();
+    }
+
+    let login_win = webview.clone();
+    let face_reg_win = WebviewWindowBuilder::new(&app, "face_reg", WebviewUrl::External(url))
+        .title("Xodimlar tizimi")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(800.0, 600.0)
+        .maximized(true)
+        .devtools(false)
+        .initialization_script(BROWSER_GUARDS)
+        .build()
+        .map_err(|e| {
+            LoginError::simple("navigation", format!("Web sahifani ochib bo‘lmadi: {e}"))
+        })?;
+
+    // Login oynasini yashir
+    webview.hide().ok();
+
+    // face_reg yopilsa login ni qayta ko‘rsat va formni reset qil
+    face_reg_win.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            login_win.show().ok();
+            login_win.set_focus().ok();
+            login_win.eval(
+                "try{var s=document.getElementById('submit'),p=document.getElementById('password');if(s){s.disabled=false;s.textContent='Kirish';}if(p)p.value='';}catch(e){}"
+            ).ok();
+        }
+    });
+
+    Ok(())
 }
 
 const BROWSER_GUARDS: &str = r#"
 (() => {
-  if (location.hostname === 'face-reg-cyan.vercel.app' || location.hostname.endsWith('.vercel.app') || location.hostname.includes('face-reg')) {
-    const params = new URLSearchParams(location.hash.slice(1));
-    const desktopToken = params.get('desktop-auth');
-    if (desktopToken) {
-      localStorage.setItem('face-reg-auth', JSON.stringify({
-        state: {
-          token: desktopToken,
-          isAuthenticated: true
-        },
-        version: 0
-      }));
-      history.replaceState(null, '', `${location.pathname}${location.search}`);
-    }
+  const isFaceReg = (
+    location.hostname === 'face-reg-cyan.vercel.app' ||
+    location.hostname.endsWith('.vercel.app') ||
+    location.hostname.includes('face-reg')
+  );
+
+  // 1. Desktop auth token ni localStorage ga yoz
+  if (isFaceReg) {
+    try {
+      const params = new URLSearchParams(location.hash.slice(1));
+      const desktopToken = params.get('desktop-auth');
+      if (desktopToken) {
+        localStorage.setItem('face-reg-auth', JSON.stringify({
+          state: { token: desktopToken, isAuthenticated: true },
+          version: 0
+        }));
+        history.replaceState(null, '', location.pathname + location.search);
+      }
+    } catch (e) {}
   }
 
   if (window.__FACE_REG_DESKTOP_GUARDS__) return;
   window.__FACE_REG_DESKTOP_GUARDS__ = true;
 
-  window.addEventListener('contextmenu', (event) => event.preventDefault(), true);
-
-  window.addEventListener('keydown', (event) => {
-    const key = (event.key || '').toLowerCase();
-    const refresh = event.key === 'F5' || (event.ctrlKey && key === 'r');
-    const devtools =
-      event.key === 'F12' ||
-      (event.ctrlKey && event.shiftKey && ['i', 'j', 'c'].includes(key));
-
-    if (refresh) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
+  // 2. Context menu va devtools bloklash
+  window.addEventListener('contextmenu', (e) => e.preventDefault(), true);
+  window.addEventListener('keydown', (e) => {
+    const key = (e.key || '').toLowerCase();
+    if (e.key === 'F5' || (e.ctrlKey && key === 'r')) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
       window.location.reload();
       return;
     }
-
-    if (devtools) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
+    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && ['i','j','c'].includes(key))) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
     }
   }, true);
 
-  const originalOpen = window.open;
-  window.open = (url) => {
-    if (url) window.location.assign(url);
-    return window;
-  };
+  // 3. window.open override
+  window.open = (url) => { if (url) window.location.assign(url); return window; };
 
-  if (location.hostname === 'face-reg-cyan.vercel.app' || location.hostname.endsWith('.vercel.app') || location.hostname.includes('face-reg')) {
+  // 4. Face-reg sahifasi uchun loading overlay + retry
+  if (isFaceReg) {
+    const overlay = document.createElement('div');
+    overlay.id = '__face_reg_loading__';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', zIndex: '2147483646',
+      background: '#f3f5f8', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', flexDirection: 'column', gap: '12px',
+      fontFamily: 'system-ui,-apple-system,sans-serif', color: '#172033',
+      pointerEvents: 'none'
+    });
+    overlay.innerHTML = '<div style="width:36px;height:36px;border:3px solid #e3e7ed;border-top-color:#315efb;border-radius:50%;animation:__frSpin__ 0.8s linear infinite"></div><div style="font-size:15px;font-weight:600;color:#737d8c">Yuklanmoqda...</div><style>@keyframes __frSpin__{to{transform:rotate(360deg)}}</style>';
+    document.documentElement.appendChild(overlay);
+
+    let loadDone = false;
+    const markLoaded = () => {
+      if (loadDone) return;
+      loadDone = true;
+      clearTimeout(failTimer);
+      const el = document.getElementById('__face_reg_loading__');
+      if (el) el.remove();
+    };
+
+    const showRetry = () => {
+      if (loadDone) return;
+      const el = document.getElementById('__face_reg_loading__');
+      if (!el) return;
+      el.style.pointerEvents = 'auto';
+      el.innerHTML = '<div style="font-size:20px;font-weight:700;margin-bottom:4px">Sahifa yuklanmadi</div><div style="font-size:14px;color:#737d8c;text-align:center;max-width:300px;line-height:1.5">Internet aloqasi yoki server muammosi bo&#39;lishi mumkin.</div><button onclick="window.location.reload()" style="margin-top:12px;padding:12px 28px;background:#315efb;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer">Qayta yuklash</button>';
+    };
+
+    const failTimer = setTimeout(showRetry, 25000);
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const root = document.getElementById('root') || document.body;
+      const check = () => {
+        const r = document.getElementById('root') || document.body;
+        if (r && r.children.length > 0) { markLoaded(); return true; }
+        return false;
+      };
+      if (!check()) {
+        const obs = new MutationObserver(() => { if (check()) obs.disconnect(); });
+        obs.observe(root, { childList: true, subtree: true });
+      }
+    });
+
+    // Runtime xatolar
     const showRuntimeError = (value) => {
-      const message = value?.stack || value?.message || String(value);
+      markLoaded();
+      const message = (value && (value.stack || value.message)) || String(value);
       let panel = document.getElementById('__face_reg_runtime_error__');
       if (!panel) {
         panel = document.createElement('pre');
         panel.id = '__face_reg_runtime_error__';
         Object.assign(panel.style, {
-          position: 'fixed',
-          inset: '16px',
-          zIndex: '2147483647',
-          margin: '0',
-          padding: '20px',
-          overflow: 'auto',
-          border: '2px solid #dc3545',
-          borderRadius: '12px',
-          background: '#fff',
-          color: '#991b1b',
-          font: '13px/1.5 monospace',
-          whiteSpace: 'pre-wrap'
+          position: 'fixed', inset: '16px', zIndex: '2147483647',
+          margin: '0', padding: '20px', overflow: 'auto',
+          border: '2px solid #dc3545', borderRadius: '12px',
+          background: '#fff', color: '#991b1b',
+          font: '13px/1.5 monospace', whiteSpace: 'pre-wrap'
         });
         document.documentElement.appendChild(panel);
       }
-      panel.textContent = `FaceReg runtime xatosi:\n\n${message}`;
+      panel.textContent = 'FaceReg runtime xatosi:\n\n' + message;
     };
-    window.addEventListener('error', (event) => showRuntimeError(event.error || event.message));
-    window.addEventListener('unhandledrejection', (event) => showRuntimeError(event.reason));
+    window.addEventListener('error', (e) => showRuntimeError(e.error || e.message));
+    window.addEventListener('unhandledrejection', (e) => showRuntimeError(e.reason));
   }
 })();
 "#;
